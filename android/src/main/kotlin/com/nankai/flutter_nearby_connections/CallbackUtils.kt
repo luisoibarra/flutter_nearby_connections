@@ -16,11 +16,21 @@ class CallbackUtils constructor(private val channel: MethodChannel, private val 
     private val devices = mutableListOf<DeviceJson>()
     private val gson = Gson()
     private fun deviceExists(deviceId: String) = devices.any { element -> element.deviceID == deviceId }
-    private fun device(deviceId: String): DeviceJson? = devices.find { element -> element.deviceID == deviceId }
-    fun updateStatus(deviceId: String, state: Int) {
-        devices.find { element -> element.deviceID == deviceId }?.state = state
+    private fun getDevice(deviceId: String): DeviceJson? = devices.find { element -> element.deviceID == deviceId }
+
+    fun updateDevicesListStatus() {
         val json = gson.toJson(devices)
         channel.invokeMethod(INVOKE_CHANGE_STATE_METHOD, json)
+    }
+    
+    fun removeDevice(deviceId: String) {
+        devices.remove(getDevice(deviceId))
+        updateDevicesListStatus()
+    }
+    
+    fun updateStatus(deviceId: String, state: Int) {
+        devices.find { element -> element.deviceID == deviceId }?.state = state
+        updateDevicesListStatus()
     }
 
     fun addDevice(device: DeviceJson) {
@@ -28,15 +38,8 @@ class CallbackUtils constructor(private val channel: MethodChannel, private val 
             updateStatus(device.deviceID, device.state)
         } else {
             devices.add(device)
+            updateDevicesListStatus()
         }
-        val json = gson.toJson(devices)
-        channel.invokeMethod(INVOKE_CHANGE_STATE_METHOD, json)
-    }
-
-    fun removeDevice(deviceId: String) {
-        devices.remove(device(deviceId))
-        val json = gson.toJson(devices)
-        channel.invokeMethod(INVOKE_CHANGE_STATE_METHOD, json)
     }
 
     val endpointDiscoveryCallback: EndpointDiscoveryCallback = object : EndpointDiscoveryCallback() {
@@ -81,15 +84,14 @@ class CallbackUtils constructor(private val channel: MethodChannel, private val 
         }
 
         override fun onConnectionResult(endpointId: String, result: ConnectionResolution) {
-            Log.d("nearby_connections", "onConnectionResult $endpointId")
-            val data = if (result.status.isSuccess) {
-             DeviceJson(endpointId,
-                        if (device(endpointId)?.deviceName == null) "Null" else device(endpointId)?.deviceName!!,connected)
-            }else{
-                DeviceJson(endpointId,
-                        if (device(endpointId)?.deviceName == null) "Null" else device(endpointId)?.deviceName!!, notConnected)
+            Log.d("nearby_connections", "onConnectionResult $endpointId with result $result")
+            if (result.status.isSuccess) {
+                val data = DeviceJson(endpointId,
+                        if (getDevice(endpointId)?.deviceName == null) "Null-onConnectionResult-success" else getDevice(endpointId)?.deviceName!!,connected)
+                addDevice(data)
+            } else {
+                removeDevice(endpointId)
             }
-            addDevice(data)
         }
 
         override fun onDisconnected(endpointId: String) {
@@ -97,8 +99,7 @@ class CallbackUtils constructor(private val channel: MethodChannel, private val 
             if (deviceExists(endpointId)) {
                 updateStatus(endpointId, notConnected)
             } else {
-                val data = DeviceJson(endpointId, if (device(endpointId)?.deviceName == null) "Null" else device(endpointId)?.deviceName!!, notConnected)
-                addDevice(data)
+                removeDevice(endpointId)
             }
         }
     }
